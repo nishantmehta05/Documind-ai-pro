@@ -1,0 +1,40 @@
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment and secrets
+.env
+.env.local
+*.env
+
+# Local data, storage, and databases
+data/uploads/
+data/chroma/
+chroma_db/
+chroma_storage/
+*.chroma
+*.db
+*.sqlite3
+
+# Uploaded documents / PDFs (keep data/.gitkeep)
+*.pdf
+!data/.gitkeep
+
+# Model caches
+models/
+.cache/
+huggingface/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,24 @@
+# DocuMind AI Pro - Evidence-Grounded Local Research Assistant
+# Core Web Framework
+streamlit>=1.50.0
+
+# PDF Extraction & Document Processing
+pymupdf>=1.24.0
+
+# Vector Embeddings & Persistent Vector Storage
+sentence-transformers>=3.0.0
+chromadb>=0.5.0
+
+# Keyword & Hybrid Retrieval
+rank-bm25>=0.2.2
+
+# LLM & Networking
+requests>=2.31.0
+
+# Data Validation & Typing
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

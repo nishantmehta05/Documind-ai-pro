@@ -1,0 +1,22 @@
+[theme]
+base = "light"
+primaryColor = "#1677FF"
+backgroundColor = "#F9FAFF"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#101936"
+font = "sans-serif"
+headingFont = "sans-serif"
+showWidgetBorder = true
+showSidebarBorder = true
+baseRadius = "large"
+buttonRadius = "large"
+borderColor = "#E4E9F4"
+paddingTop = "1.5rem"
+paddingBottom = "2rem"
+
+[theme.sidebar]
+backgroundColor = "#F9FAFF"
+secondaryBackgroundColor = "#FFFFFF"
+
+[server]
+maxUploadSize = 25
