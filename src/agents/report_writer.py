@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ..rag.citations import Citation, CitationTracker
 from ..retrieval.vector_store import SearchResult
 from ..config import config
+from ..llm.provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ CRITICAL REQUIREMENTS:
 """
 
     def __init__(self, base_url: Optional[str] = None, model_name: Optional[str] = None):
-        self.base_url = (base_url or config.ollama_base_url).rstrip("/")
-        self.model_name = model_name or config.ollama_model
+        self.provider = LLMProvider(model_name=model_name, base_url=base_url)
+        self.base_url = self.provider.base_url
+        self.model_name = self.provider.model_name
 
     def write_report(self, topic: str, accumulated_passages: List[SearchResult]) -> ResearchReport:
         """Synthesize accumulated evidence passages into a structured markdown report."""
@@ -55,37 +57,29 @@ CRITICAL REQUIREMENTS:
 
 Generate the complete structured research report below:"""
 
-        payload = {
-            "model": self.model_name,
-            "system": self.REPORT_SYSTEM_PROMPT,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": 0.15,
-                "num_ctx": 4096,
-                "num_predict": config.max_report_tokens,
-            },
-        }
-
         try:
-            resp = requests.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
+            report_body = self.provider.generate(
+                prompt=prompt,
+                system=self.REPORT_SYSTEM_PROMPT,
+                options={
+                    "temperature": 0.15,
+                    "num_ctx": 4096,
+                    "num_predict": config.max_report_tokens,
+                },
                 timeout=config.report_timeout_seconds,
             )
-            resp.raise_for_status()
-            report_body = resp.json().get("response", "").strip()
-        except (requests.exceptions.RequestException, ValueError, AttributeError):
-            logger.exception("Report generation failed")
+        except (requests.exceptions.RequestException, ValueError, AttributeError) as error:
+            logger.warning("Report generation failed: %s", error)
+            safe_error = str(error) or "The configured model provider could not generate a report."
             return ResearchReport(
                 topic=topic,
                 summary="Report generation failed.",
                 detailed_findings="",
-                gaps_and_limitations="The local Ollama model did not return a report.",
+                gaps_and_limitations=safe_error,
                 citations=[],
                 markdown_output=(
                     f"# Research Brief: {topic}\n\n"
-                    "The local model could not generate this report. Check Ollama and try again."
+                    f"{safe_error}"
                 ),
                 is_error=True,
             )

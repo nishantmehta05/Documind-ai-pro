@@ -386,9 +386,10 @@ with st.container(key="app-header"):
         )
     with status_column:
         if configured_model_available:
+            ready_label = "Local AI ready" if config.llm_provider == "ollama" else "Hosted AI ready"
             st.markdown(
                 '<div class="model-status model-status--ready" role="status">'
-                '<span class="model-status-dot" aria-hidden="true"></span>Local AI ready</div>',
+                f'<span class="model-status-dot" aria-hidden="true"></span>{ready_label}</div>',
                 unsafe_allow_html=True,
             )
     with menu_column:
@@ -514,7 +515,12 @@ elif active_view == "Research Chat":
             )
             st.markdown(
                 '<div class="hero-subtitle">Ask questions, explore ideas, and discover insights from your PDFs'
-                '<br>with the power of local AI — private, on-device and evidence-grounded.</div>',
+                + (
+                    '<br>with the power of local AI — private, on-device and evidence-grounded.'
+                    if config.llm_provider == "ollama"
+                    else '<br>with evidence-grounded answers from your configured hosted model.'
+                )
+                + "</div>",
                 unsafe_allow_html=True,
             )
 
@@ -640,11 +646,17 @@ elif active_view == "Research Chat":
                     unsafe_allow_html=True,
                 )
 
+        ai_feature_title = "Local AI answers" if config.llm_provider == "ollama" else "Hosted AI answers"
+        ai_feature_detail = (
+            "Powered by your configured model"
+            if config.llm_provider == "ollama"
+            else "Using your configured endpoint"
+        )
         st.markdown(
-            """
+            f"""
             <div class="feature-highlights">
               <div class="feature-item"><span class="feature-icon feature-icon--shield" aria-hidden="true"></span><span><strong>Local document processing</strong><small>Indexed on this device</small></span></div>
-              <div class="feature-item"><span class="feature-icon feature-icon--bolt" aria-hidden="true"></span><span><strong>Local AI answers</strong><small>Powered by your configured model</small></span></div>
+              <div class="feature-item"><span class="feature-icon feature-icon--bolt" aria-hidden="true"></span><span><strong>{ai_feature_title}</strong><small>{ai_feature_detail}</small></span></div>
               <div class="feature-item"><span class="feature-icon feature-icon--quote" aria-hidden="true"></span><span><strong>Evidence linked</strong><small>Sources and pages included</small></span></div>
               <div class="feature-item"><span class="feature-icon feature-icon--sparkles" aria-hidden="true"></span><span><strong>Research tools</strong><small>Explore and compare your sources</small></span></div>
             </div>
@@ -679,14 +691,19 @@ elif active_view == "Research Chat":
                 st.caption("Attach a PDF in the chat composer to create your source library.")
 
             with st.expander("Advanced settings", expanded=False, icon=":material/settings:"):
-                st.markdown("**Local model**")
-                st.caption(f"Configured model · `{config.ollama_model}`")
+                st.markdown("**Model provider**")
+                st.caption(
+                    "Local Ollama"
+                    if config.llm_provider == "ollama"
+                    else "Hosted OpenAI-compatible endpoint"
+                )
+                st.caption(f"Configured model · `{generator.model_name}`")
                 if configured_model_available:
-                    st.caption("Ollama is available and the configured model is installed.")
-                elif ollama_online:
+                    st.caption("The configured provider and model are available.")
+                elif config.llm_provider == "ollama" and ollama_online:
                     st.warning(f"Model not installed. Run `ollama pull {config.ollama_model}`.")
                 else:
-                    st.warning(f"Ollama is unavailable at `{config.ollama_base_url}`.")
+                    st.warning(generator.status_error or "The configured model provider is unavailable.")
                 st.caption(f"Embedding model · `{config.embedding_model_name}`")
                 st.divider()
                 st.caption("Remove every indexed chunk and clear this session's conversation.")
@@ -794,8 +811,8 @@ elif active_view == "Research Chat":
                     {
                         "role": "assistant",
                         "content": (
-                            f"The local model `{config.ollama_model}` is not ready, so I could "
-                            "not generate an answer. Check the Sources menu for setup details."
+                            generator.status_error
+                            or "The configured model provider is unavailable. Check the Sources menu for setup details."
                         ),
                         "citations": [],
                         "is_grounded": False,
@@ -1031,7 +1048,7 @@ elif active_view == "Advanced Tools":
         )
 
     if not configured_model_available:
-        st.warning("Start Ollama and verify the configured model to generate a report.")
+        st.warning(generator.status_error or "Configure an available model provider to generate a report.")
     elif not indexed_docs:
         st.info("Index at least one PDF before generating a research report.")
 

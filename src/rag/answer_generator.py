@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .citations import Citation, CitationTracker
 from ..retrieval.vector_store import SearchResult
 from ..config import config
+from ..llm.provider import LLMProvider, ModelProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class RAGResponse(BaseModel):
     raw_prompt: Optional[str] = None
 
 class GroundedAnswerGenerator:
-    """Generates strictly verified and cited answers using the local Ollama LLM."""
+    """Generates strictly verified and cited answers using the configured LLM."""
 
     SYSTEM_PROMPT = """You are DocuMind AI Pro, an evidence-grounded research assistant.
 
@@ -48,8 +49,14 @@ CRITICAL OPERATIONAL RULES:
         temperature: Optional[float] = None,
         timeout: Optional[int] = None
     ):
-        self.base_url = (base_url or config.ollama_base_url).rstrip("/")
-        self.model_name = model_name or config.ollama_model
+        self.provider = LLMProvider(
+            model_name=model_name,
+            base_url=base_url,
+            timeout=timeout,
+        )
+        self.provider_name = self.provider.provider
+        self.model_name = self.provider.model_name
+        self.status_error: Optional[str] = None
         self.temperature = temperature if temperature is not None else config.temperature
         self.timeout = timeout or config.timeout_seconds
 
@@ -58,20 +65,10 @@ CRITICAL OPERATIONAL RULES:
         return self.check_status()[0]
 
     def check_status(self) -> tuple[bool, bool]:
-        """Return whether Ollama is reachable and the configured model is installed."""
-        try:
-            resp = requests.get(f"{self.base_url}/api/tags", timeout=5)
-            resp.raise_for_status()
-            models = resp.json().get("models", [])
-            installed = any(
-                model.get("name") == self.model_name
-                or model.get("model") == self.model_name
-                for model in models
-            )
-            return True, installed
-        except (requests.exceptions.RequestException, ValueError, AttributeError) as error:
-            logger.info("Could not verify Ollama status: %s", error)
-            return False, False
+        """Return provider reachability and configured model availability."""
+        status = self.provider.check_status()
+        self.status_error = self.provider.last_error
+        return status
 
     def check_model_available(self) -> bool:
         """Verify that the configured model is installed in the local Ollama instance."""
@@ -83,7 +80,7 @@ CRITICAL OPERATIONAL RULES:
         retrieved_passages: List[SearchResult],
         conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> RAGResponse:
-        """Query the local Ollama LLM with grounded evidence and verify citations."""
+        """Query the configured LLM with grounded evidence and verify citations."""
         start_time = time.perf_counter()
 
         # Handle empty retrieval immediately
@@ -124,61 +121,32 @@ CRITICAL OPERATIONAL RULES:
 
 Grounded Answer (with inline citations [1], [2] where applicable):"""
 
-        payload = {
-            "model": self.model_name,
-            "system": self.SYSTEM_PROMPT,
-            "prompt": prompt,
-            "stream": False,
-            "options": {
-                "temperature": self.temperature,
-                "top_p": 0.9,
-                "num_ctx": 4096,
-                "num_predict": config.max_generation_tokens,
-            }
-        }
-
         generation_error = False
         try:
-            resp = requests.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=self.timeout
+            raw_answer = self.provider.generate(
+                prompt=prompt,
+                system=self.SYSTEM_PROMPT,
+                options={
+                    "temperature": self.temperature,
+                    "top_p": 0.9,
+                    "num_ctx": 4096,
+                    "num_predict": config.max_generation_tokens,
+                },
+                timeout=self.timeout,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            raw_answer = data.get("response", "").strip()
-        except requests.exceptions.ConnectionError:
-            logger.exception("Could not connect to Ollama at %s", self.base_url)
+        except ModelProviderError as error:
+            logger.warning("Model generation failed: %s", error)
             generation_error = True
-            raw_answer = (
-                "Ollama is unavailable. Start the local Ollama service and try again."
-            )
-        except requests.exceptions.Timeout:
-            logger.exception("Ollama answer generation timed out")
-            generation_error = True
-            raw_answer = "Ollama took too long to respond. Please try again."
-        except requests.exceptions.HTTPError as error:
-            logger.exception("Ollama rejected the answer-generation request")
-            generation_error = True
-            if resp.status_code == 404:
-                raw_answer = (
-                    f"The configured local model '{self.model_name}' is not installed. "
-                    f"Run `ollama pull {self.model_name}` and try again."
-                )
-            else:
-                raw_answer = (
-                    "Ollama could not generate an answer. Check that the local service "
-                    "and configured model are ready, then try again."
-                )
+            raw_answer = str(error)
         except (requests.exceptions.RequestException, ValueError, KeyError, TypeError):
-            logger.exception("Ollama returned an invalid answer-generation response")
+            logger.warning("Model provider returned an invalid answer response")
             generation_error = True
-            raw_answer = "Ollama returned an invalid response. Please try again."
+            raw_answer = "The configured model provider returned an invalid response. Check its configuration and try again."
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
         if not raw_answer:
-            raw_answer = "Ollama returned an empty answer. Please try again."
+            raw_answer = "The configured model provider returned an empty answer. Please try again."
             generation_error = True
 
         if generation_error:

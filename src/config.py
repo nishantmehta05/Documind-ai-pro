@@ -15,15 +15,52 @@ def _path_from_env(name: str, default: Path) -> Path:
     value = Path(os.getenv(name, str(default))).expanduser()
     return value if value.is_absolute() else BASE_DIR / value
 
+
+def _setting(env_name: str, secret_name: str, default: str = "") -> str:
+    """Resolve environment values first, then flat or [llm] Streamlit secrets."""
+    value = os.getenv(env_name)
+    if value:
+        return value
+    try:
+        import streamlit as st
+
+        secrets = st.secrets
+        value = secrets.get(secret_name)
+        if value:
+            return str(value)
+        llm_secrets = secrets.get("llm", {})
+        if hasattr(llm_secrets, "get"):
+            section_key = secret_name.lower().removeprefix("llm_")
+            value = llm_secrets.get(section_key)
+            if value:
+                return str(value)
+    except Exception:
+        # Streamlit secrets are unavailable outside an app or when not configured.
+        pass
+    return default
+
 class AppConfig(BaseModel):
     """Application settings with environment variable fallbacks."""
     
     # Model settings
+    llm_provider: str = Field(
+        default_factory=lambda: _setting("LLM_PROVIDER", "LLM_PROVIDER", "ollama").strip().lower()
+    )
     ollama_base_url: str = Field(
-        default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        default_factory=lambda: _setting("OLLAMA_BASE_URL", "OLLAMA_BASE_URL", "http://localhost:11434")
     )
     ollama_model: str = Field(
-        default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+        default_factory=lambda: _setting("OLLAMA_MODEL", "OLLAMA_MODEL", "qwen2.5:7b")
+    )
+    hosted_llm_base_url: str = Field(
+        default_factory=lambda: _setting("LLM_API_BASE_URL", "LLM_API_BASE_URL")
+    )
+    hosted_llm_model: str = Field(
+        default_factory=lambda: _setting("LLM_MODEL", "LLM_MODEL")
+    )
+    hosted_llm_api_key: str = Field(
+        default_factory=lambda: _setting("LLM_API_KEY", "LLM_API_KEY"),
+        repr=False,
     )
     embedding_model_name: str = Field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
